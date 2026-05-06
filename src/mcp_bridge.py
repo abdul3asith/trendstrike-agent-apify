@@ -30,6 +30,20 @@ from typing import Any
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
+
+class ActorInputValidationError(RuntimeError):
+    """Raised when call-actor rejects our input as schema-invalid.
+
+    Carries both the human-readable error and the schema text Apify returned,
+    so a caller can feed both back to the LLM for self-correction.
+    """
+
+    def __init__(self, errors: str, schema_text: str) -> None:
+        super().__init__(errors)
+        self.errors = errors
+        self.schema_text = schema_text
+
+
 APIFY_MCP_URL = "https://mcp.apify.com"
 
 log = logging.getLogger(__name__)
@@ -81,6 +95,43 @@ class ApifyMcpBridge:
                 text_parts.append(block.text)
         return "\n".join(text_parts).strip()
 
+    async def _call_tool_collect_blocks(
+        self, name: str, arguments: dict[str, Any]
+    ) -> list[str]:
+        """Same as _call_tool_raw, but returns each text block separately.
+
+        Some tools (notably call-actor with large outputs) split their
+        response across multiple TextContent blocks. Joining them with \\n
+        produces invalid JSON; parsing per-block and concatenating the
+        results works correctly.
+
+        On error responses for call-actor, Apify returns up to three blocks:
+        a human message, the input schema, and a validation-error summary.
+        We detect that pattern and raise ActorInputValidationError so the
+        caller can self-correct.
+        """
+        assert self._session is not None, "Bridge not entered as context manager"
+        result = await self._session.call_tool(name, arguments=arguments)
+
+        if result.isError:
+            block_texts = [
+                getattr(b, "text", "") for b in result.content if hasattr(b, "text")
+            ]
+            joined = " | ".join(block_texts)
+            # Detect the input-validation failure pattern so the caller can retry
+            if name == "call-actor" and "Input validation failed" in joined:
+                schema_text = ""
+                errors_text = joined
+                for t in block_texts:
+                    if "Input schema" in t:
+                        schema_text = t
+                    elif "Validation errors" in t:
+                        errors_text = t
+                raise ActorInputValidationError(errors_text, schema_text)
+            raise RuntimeError(f"MCP tool {name} returned error: {result.content!r}")
+
+        return [block.text for block in result.content if hasattr(block, "text")]
+
     async def list_tools(self) -> list[str]:
         """List the names of every tool the server currently exposes."""
         assert self._session is not None
@@ -115,39 +166,61 @@ class ApifyMcpBridge:
     ) -> list[dict[str, Any]]:
         """Run an Actor and return its dataset items.
 
-        call-actor returns dataset items as JSON inside a TextContent block.
-        We try several known response shapes and warn on the unknown.
+        Apify's call-actor splits large outputs across multiple TextContent
+        blocks. We parse each block independently and concatenate the
+        resulting items. Each block may be:
+            - a JSON list of items
+            - a JSON dict like {"items": [...]} or {"defaultDatasetId": "..."}
+            - free-form text (header/footer the LLM would normally read)
         """
-        raw = await self._call_tool_raw(
+        blocks = await self._call_tool_collect_blocks(
             "call-actor", {"actor": actor_id, "input": run_input}
         )
-        if not raw:
+        if not blocks:
             return []
 
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            log.warning("call_actor returned non-JSON for %s: %s", actor_id, raw[:200])
-            return []
+        items: list[dict[str, Any]] = []
+        dataset_id_fallback: str | None = None
 
-        if isinstance(parsed, list):
-            return parsed
-        if isinstance(parsed, dict):
-            if isinstance(parsed.get("items"), list):
-                return parsed["items"]
-            # Some versions return run metadata only — fetch via dataset
-            dataset_id = parsed.get("defaultDatasetId") or parsed.get("datasetId")
-            if dataset_id:
-                items_raw = await self._call_tool_raw(
-                    "get-actor-output", {"datasetId": dataset_id, "limit": 100}
-                )
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            try:
+                parsed = json.loads(block)
+            except json.JSONDecodeError:
+                # Likely a header/footer Markdown line — skip silently
+                continue
+
+            if isinstance(parsed, list):
+                items.extend(p for p in parsed if isinstance(p, dict))
+            elif isinstance(parsed, dict):
+                if isinstance(parsed.get("items"), list):
+                    items.extend(p for p in parsed["items"] if isinstance(p, dict))
+                else:
+                    # Single item, or run-metadata block
+                    if "defaultDatasetId" in parsed or "datasetId" in parsed:
+                        dataset_id_fallback = parsed.get(
+                            "defaultDatasetId"
+                        ) or parsed.get("datasetId")
+                    elif parsed:  # treat as a single item
+                        items.append(parsed)
+
+        # If no inline items but we got a dataset id, fetch from there
+        if not items and dataset_id_fallback:
+            extra = await self._call_tool_collect_blocks(
+                "get-actor-output",
+                {"datasetId": dataset_id_fallback, "limit": 100},
+            )
+            for block in extra:
                 try:
-                    items = json.loads(items_raw)
+                    parsed = json.loads(block.strip())
                 except json.JSONDecodeError:
-                    return []
-                if isinstance(items, list):
-                    return items
-                if isinstance(items, dict) and isinstance(items.get("items"), list):
-                    return items["items"]
-        log.warning("call_actor returned unexpected shape for %s", actor_id)
-        return []
+                    continue
+                if isinstance(parsed, list):
+                    items.extend(p for p in parsed if isinstance(p, dict))
+                elif isinstance(parsed, dict) and isinstance(parsed.get("items"), list):
+                    items.extend(p for p in parsed["items"] if isinstance(p, dict))
+
+        log.info("call_actor: %s returned %d items", actor_id, len(items))
+        return items
