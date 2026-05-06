@@ -34,7 +34,7 @@ from src.subagents import (
 
 # The orchestrator's synthesis call uses GPT-5; sub-agents already use
 # gpt-4.1 internally (see src/subagents.py).
-SYNTHESIS_MODEL = "gpt-5"
+SYNTHESIS_MODEL = "gpt-5-mini"
 
 
 SYNTHESIS_PROMPT = """You are TrendStrike, an autonomous research agent helping a TikTok Shop seller find emerging product opportunities.
