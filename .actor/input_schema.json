@@ -1,0 +1,40 @@
+{
+  "title": "TrendStrike Input",
+  "description": "Configure your TikTok Shop opportunity briefing.",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "category": {
+      "title": "Shop category",
+      "type": "string",
+      "description": "What kind of products do you sell? Free-form text — the agent reasons about it.",
+      "editor": "textfield",
+      "default": "fashion and apparel",
+      "example": "minimalist streetwear under $80"
+    },
+    "country": {
+      "title": "TikTok Shop country",
+      "type": "string",
+      "description": "ISO country code for TikTok Shop region.",
+      "editor": "select",
+      "enum": ["US", "GB", "ID", "TH", "VN", "MY", "PH", "SG"],
+      "default": "US"
+    },
+    "max_opportunities": {
+      "title": "Max opportunities to surface",
+      "type": "integer",
+      "description": "Cap on briefing length.",
+      "default": 5,
+      "minimum": 3,
+      "maximum": 10
+    },
+    "openai_api_key": {
+      "title": "OpenAI API key",
+      "type": "string",
+      "description": "Your OpenAI key. The agent uses GPT-5 family for synthesis and gpt-4.1 for sub-agents.",
+      "editor": "textfield",
+      "isSecret": true
+    }
+  },
+  "required": ["category", "openai_api_key"]
+}

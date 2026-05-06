@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+.git/
+.github/
+.idea/
+.vscode/
+.DS_Store
+frontend/
+storage/
+cache/
+.apify/
+test_*.py
+touch_*.py

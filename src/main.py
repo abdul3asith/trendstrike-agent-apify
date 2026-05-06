@@ -105,6 +105,19 @@ async def main() -> None:
         # so external callers (e.g. webhook → Lovable) can fetch directly
         await Actor.set_value("BRIEFING", briefing_md, content_type="text/markdown")
 
+        # PHASE G — send briefing as polished HTML email
+        # Best-effort; never blocks the Actor on email failure.
+        from src.email_sender import send_briefing_email
+
+        actor_url = os.environ.get("TRENDSTRIKE_ACTOR_URL", "https://apify.com")
+        await send_briefing_email(
+            category=category,
+            country=country,
+            opportunities=opportunities,
+            log=Actor.log,
+            actor_url=actor_url,
+        )
+
         Actor.log.info(
             "Done. %d opportunities surfaced. Briefing in KV under 'BRIEFING'.",
             len(opportunities),

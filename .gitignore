@@ -1,9 +1,28 @@
+# Python (Apify Actor)
 __pycache__/
 *.pyc
 .venv/
-.env
+
+# Apify
 .apify/
 storage/
+cache/
+
+# Secrets
+.env
+.env.local
+
+# Node (Lovable frontend)
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
+frontend/.turbo/
+frontend/build/
+
+# Lovable internal
+frontend/.lovable/
+
+# Editor / OS
 .DS_Store
 .idea/
 .vscode/

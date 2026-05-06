@@ -1,0 +1,24 @@
+{
+    "actorSpecification": 1,
+    "name": "trendstrike",
+    "title": "TrendStrike — TikTok Shop opportunity agent",
+    "description": "Autonomous research agent that finds emerging product opportunities on TikTok Shop. Scans trending hashtags and sounds, cross-references against TikTok Shop products and creator activity, and produces a daily briefing of products to add to your catalog — with evidence.",
+    "version": "0.1",
+    "buildTag": "latest",
+    "input": "./input_schema.json",
+    "dockerfile": "../Dockerfile",
+    "storages": {
+        "dataset": {
+            "actorSpecification": 1,
+            "title": "Briefings archive",
+            "views": {
+                "overview": {
+                    "title": "Daily briefings",
+                    "transformation": {
+                        "fields": ["date", "category", "opportunities_count", "top_pick"]
+                    }
+                }
+            }
+        }
+    }
+}
